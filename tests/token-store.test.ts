@@ -209,6 +209,16 @@ describe('credential binding', () => {
     expect(createTokenPersistence({ MCP_DATA_DIR: dir }, { refreshToken: 'pw1' })!.load()).toBeNull();
   });
 
+  it('binds a prompt-mode cache to the account alone, apart from any password pair', () => {
+    // Prompt mode has no stored password to bind to; the cache must still be
+    // per-account and must not collide with a password-pair binding.
+    const bind = { email: 'A@b.com ' };
+    createTokenPersistence({ MCP_DATA_DIR: dir }, bind)!.save({ accessToken: 'AT', expiresAt: 1 });
+    expect(createTokenPersistence({ MCP_DATA_DIR: dir }, { email: 'a@b.com' })!.load()).toEqual({ accessToken: 'AT', expiresAt: 1 });
+    expect(createTokenPersistence({ MCP_DATA_DIR: dir }, { email: 'c@d.com' })!.load()).toBeNull();
+    expect(createTokenPersistence({ MCP_DATA_DIR: dir }, creds)!.load()).toBeNull();
+  });
+
   it('never writes a supplied refresh token to disk', () => {
     createTokenPersistence({ MCP_DATA_DIR: dir }, { refreshToken: 'RT-SECRET' })!.save({ accessToken: 'AT', expiresAt: 1 });
     const body = readFileSync(join(dir, '.skylight-mcp', 'tokens.json'), 'utf8');

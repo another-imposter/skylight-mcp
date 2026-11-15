@@ -21,7 +21,8 @@
         "SKYLIGHT_APPLE_APP_PASSWORD": "${user_config.apple_app_specific_password}",
         "SKYLIGHT_APPLE_ID": "${user_config.apple_id}",
         "SKYLIGHT_UPLOAD_DIR": "${user_config.skylight_upload_dir}",
-        "SKYLIGHT_TOKEN_CACHE": "${user_config.skylight_token_cache}"
+        "SKYLIGHT_TOKEN_CACHE": "${user_config.skylight_token_cache}",
+        "SKYLIGHT_PASSWORD_PROMPT": "${user_config.skylight_password_prompt}"
       }
     }
   },
@@ -42,9 +43,16 @@
     "skylight_password": {
       "type": "string",
       "title": "Password",
-      "description": "Skylight account password. Needed only if you are not supplying a refresh token above. Stored locally in the bundle config — keep it private.",
+      "description": "Skylight account password. Leave empty if you supply a refresh token above, or if you turn on \"Ask for password\" below.",
       "required": false,
       "sensitive": true
+    },
+    "skylight_password_prompt": {
+      "type": "boolean",
+      "title": "Ask for password",
+      "description": "Leave the password empty and turn this on to be asked for it in a sign-in window (Windows or macOS) whenever Skylight needs a fresh login. The password is never saved; only the login token is cached.",
+      "required": false,
+      "default": false
     },
     "apple_app_specific_password": {
       "type": "string",

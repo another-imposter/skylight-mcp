@@ -14,7 +14,10 @@ import { parseBoolEnv } from '@chrischall/mcp-utils';
  * credential must invalidate the cache; binding to the wrong one would let a
  * token from a replaced credential keep working.
  */
-export type CacheBinding = { email: string; password: string } | { refreshToken: string };
+export type CacheBinding =
+  | { email: string; password: string }
+  | { refreshToken: string }
+  | { email: string; password?: undefined };
 
 /**
  * Where the OAuth token pair is cached between runs.
@@ -67,7 +70,9 @@ export function createTokenPersistence(
           boundTo:
             'refreshToken' in binding
               ? `refresh\u0000${binding.refreshToken}`
-              : `${binding.email.trim().toLowerCase()}\u0000${binding.password}`,
+              : binding.password === undefined
+                ? `prompt\u0000${binding.email.trim().toLowerCase()}`
+                : `${binding.email.trim().toLowerCase()}\u0000${binding.password}`,
         }
       : {}),
   });

@@ -6,6 +6,7 @@ const NO_LOGIN_PAIR =
   'Skylight has no login configured — set SKYLIGHT_EMAIL and SKYLIGHT_PASSWORD, or SKYLIGHT_REFRESH_TOKEN.';
 import { login, refresh } from './auth-session-login.js';
 import { PendingLogin } from './login-challenge.js';
+import { promptForPassword } from './password-prompt.js';
 import { SkylightClient, type HttpFetch } from './client.js';
 import { createTokenPersistence, reportCacheWriteFailure } from './token-store.js';
 import type { BearerTokens, StatePersistence } from '@chrischall/mcp-utils/session';
@@ -22,6 +23,8 @@ function defaultFetch(url: string, init?: RequestInit): Promise<Response> {
 export async function resolveAuth(
   opts: {
     httpFetch?: HttpFetch;
+    /** Override the password dialog (tests inject a fake). */
+    promptPassword?: (email: string) => Promise<string>;
     /** Override the token cache (tests inject a fake; `null` disables it). */
     persistence?: StatePersistence<BearerTokens> | null;
   } = {},
@@ -36,14 +39,24 @@ export async function resolveAuth(
   // refresh token was supplied, so this is non-null on every path that needs it.
   const loginPair =
     account.email && account.password ? { email: account.email, password: account.password } : null;
+  // Prompt mode: an email with no stored password. The password is asked for
+  // at login time only, and lives no longer than that one login() call.
+  const promptEmail = !loginPair && account.passwordPrompt ? account.email! : null;
+  const promptPassword = opts.promptPassword ?? ((email: string) => promptForPassword(email));
+  const canLogin = loginPair !== null || promptEmail !== null;
 
   // An emailed-code challenge outlives the tool call that raised it (#276).
   const pendingLogin = new PendingLogin();
 
   const doLogin = () => {
+    if (loginPair) {
+      return pendingLogin.login(() => login({ authBaseUrl: account.authBaseUrl, ...loginPair }, httpFetch));
+    }
     /* istanbul ignore next — loadAccount rejects this combination up front. */
-    if (!loginPair) throw new Error(NO_LOGIN_PAIR);
-    return pendingLogin.login(() => login({ authBaseUrl: account.authBaseUrl, ...loginPair }, httpFetch));
+    if (!promptEmail) throw new Error(NO_LOGIN_PAIR);
+    return pendingLogin.login(async () =>
+      login({ authBaseUrl: account.authBaseUrl, email: promptEmail, password: await promptPassword(promptEmail) }, httpFetch),
+    );
   };
 
   /**
@@ -65,7 +78,7 @@ export async function resolveAuth(
     // refresh grant), and the rotated one survives this process only through
     // the cache. Prove the cache is writable BEFORE spending it, so an
     // unwritable data dir costs nothing but this error (fleet-audit#1122).
-    if (!loginPair && persistence) await probeCacheWritable(persistence);
+    if (!canLogin && persistence) await probeCacheWritable(persistence);
     try {
       return await refresh({ authBaseUrl: account.authBaseUrl, refreshToken: account.refreshToken }, httpFetch);
     } catch (err) {
@@ -73,7 +86,7 @@ export async function resolveAuth(
       // stale), and the login sits behind the same edge (so do not spend a
       // rate-limited attempt on it).
       if (err instanceof EdgeBlockedError) throw err;
-      if (loginPair) return doLogin();
+      if (canLogin) return doLogin();
       throw new Error(
         'Skylight rejected the supplied refresh token — SKYLIGHT_REFRESH_TOKEN has expired or been revoked. ' +
           'A refresh token is single-use: Skylight rotates it on every refresh, so if this one was already spent ' +
@@ -94,7 +107,11 @@ export async function resolveAuth(
           // letting a token from the old one keep working.
           account.refreshToken
             ? { refreshToken: account.refreshToken }
-            : { email: account.email!, password: account.password! },
+            : promptEmail
+              ? // No password to bind to: bind to the account. A changed
+                // password then shows up as a failed refresh, which prompts.
+                { email: promptEmail }
+              : { email: account.email!, password: account.password! },
         );
 
   // Token-only + no cache is a lockout on the next start: Skylight rotates the
@@ -104,7 +121,7 @@ export async function resolveAuth(
   // (fleet-audit#245, #1122). The marker makes `makeGetClient` cache this as
   // the config error it is. Only the operator's own SKYLIGHT_TOKEN_CACHE=false
   // gets here — an injected `null` is a test seam.
-  const refreshTokenOnly = !loginPair;
+  const refreshTokenOnly = !canLogin;
   if (refreshTokenOnly && persistence === null && opts.persistence === undefined) {
     throw new Error(
       `${NO_ENV_CONFIG_MARKER}: SKYLIGHT_TOKEN_CACHE=false with only SKYLIGHT_REFRESH_TOKEN set. Skylight rotates the ` +
