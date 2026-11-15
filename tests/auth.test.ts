@@ -12,6 +12,11 @@ vi.mock('../src/auth-session-login.js', async (importOriginal) => ({
   refresh: vi.fn(),
 }));
 
+vi.mock('../src/password-prompt.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/password-prompt.js')>()),
+  promptForPassword: vi.fn(),
+}));
+
 // Import the mocks AFTER vi.mock so we get the mocked versions.
 import { login as mockLoginImport, refresh as mockRefreshImport } from '../src/auth-session-login.js';
 import { resolveAuth } from '../src/auth.js';
@@ -20,6 +25,8 @@ import { NO_ENV_CONFIG_MARKER } from '../src/config.js';
 
 const mockLogin = mockLoginImport as ReturnType<typeof vi.fn>;
 const mockRefresh = mockRefreshImport as ReturnType<typeof vi.fn>;
+import { promptForPassword as mockPromptImport } from '../src/password-prompt.js';
+const mockPrompt = mockPromptImport as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -203,6 +210,91 @@ describe('resolveAuth', () => {
   it('throws when no credentials are configured', async () => {
     await expect(resolveAuth(noCache)).rejects.toThrow(/Missing Skylight auth config/);
     expect(mockLogin).not.toHaveBeenCalled();
+  });
+
+  it('prompts for the password only when a login is needed, and never keeps it', async () => {
+    process.env.SKYLIGHT_EMAIL = 'a@b.com';
+    process.env.SKYLIGHT_PASSWORD_PROMPT = 'true';
+    mockLogin.mockResolvedValue(GOOD_TOKENS);
+    const promptPassword = vi.fn().mockResolvedValue('typed-pw');
+
+    const httpFetch = vi.fn().mockResolvedValue(okResponse());
+    const { client } = await resolveAuth({ ...noCache, httpFetch, promptPassword });
+    expect(promptPassword).not.toHaveBeenCalled(); // lazy, like the login itself
+
+    await client.request('GET', '/frames');
+    await client.request('GET', '/frames');
+    expect(promptPassword).toHaveBeenCalledOnce();
+    expect(promptPassword).toHaveBeenCalledWith('a@b.com');
+    expect(mockLogin).toHaveBeenCalledWith(
+      expect.objectContaining({ email: 'a@b.com', password: 'typed-pw' }),
+      expect.anything(),
+    );
+  });
+
+  it('surfaces a cancelled prompt as a failed request, and prompts again on the next one', async () => {
+    process.env.SKYLIGHT_EMAIL = 'a@b.com';
+    process.env.SKYLIGHT_PASSWORD_PROMPT = 'true';
+    mockLogin.mockResolvedValue(GOOD_TOKENS);
+    const promptPassword = vi.fn().mockRejectedValueOnce(new Error('prompt cancelled')).mockResolvedValue('pw');
+
+    const httpFetch = vi.fn().mockResolvedValue(okResponse());
+    const { client } = await resolveAuth({ ...noCache, httpFetch, promptPassword });
+    await expect(client.request('GET', '/frames')).rejects.toThrow(/prompt cancelled/);
+    await client.request('GET', '/frames');
+    expect(promptPassword).toHaveBeenCalledTimes(2);
+    expect(mockLogin).toHaveBeenCalledOnce();
+  });
+
+  it('recovers a stale supplied token by prompting, in prompt mode', async () => {
+    process.env.SKYLIGHT_EMAIL = 'a@b.com';
+    process.env.SKYLIGHT_PASSWORD_PROMPT = 'true';
+    process.env.SKYLIGHT_REFRESH_TOKEN = 'STALE';
+    mockRefresh.mockRejectedValue(new Error('invalid_grant'));
+    mockLogin.mockResolvedValue(GOOD_TOKENS);
+    const promptPassword = vi.fn().mockResolvedValue('pw');
+
+    const { client } = await resolveAuth({ ...noCache, httpFetch: vi.fn().mockResolvedValue(okResponse()), promptPassword });
+    await client.request('GET', '/frames');
+    expect(promptPassword).toHaveBeenCalledOnce();
+    expect(mockLogin).toHaveBeenCalledOnce();
+  });
+
+  it('binds the default on-disk cache to the account in prompt mode', async () => {
+    process.env.SKYLIGHT_EMAIL = 'a@b.com';
+    process.env.SKYLIGHT_PASSWORD_PROMPT = 'true';
+    mockLogin.mockResolvedValue(GOOD_TOKENS);
+    const dir = mkdtempSync(join(tmpdir(), 'skylight-auth-prompt-'));
+    process.env.MCP_DATA_DIR = dir;
+    try {
+      const promptPassword = vi.fn().mockResolvedValue('typed-pw');
+      const httpFetch = vi.fn().mockResolvedValue(okResponse());
+      const first = await resolveAuth({ httpFetch, promptPassword });
+      await first.client.request('GET', '/frames');
+      const body = readFileSync(join(dir, '.skylight-mcp', 'tokens.json'), 'utf8');
+      expect(body).not.toContain('typed-pw');
+
+      // A restart reuses the cached token: no second prompt.
+      const second = await resolveAuth({ httpFetch, promptPassword });
+      await second.client.request('GET', '/frames');
+      expect(promptPassword).toHaveBeenCalledOnce();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      delete process.env.MCP_DATA_DIR;
+    }
+  });
+
+  it('uses the native dialog by default in prompt mode', async () => {
+    // No promptPassword override, so resolveAuth reaches promptForPassword —
+    // mocked at the module boundary above so no dialog opens during tests.
+    process.env.SKYLIGHT_EMAIL = 'a@b.com';
+    process.env.SKYLIGHT_PASSWORD_PROMPT = 'true';
+    mockLogin.mockResolvedValue(GOOD_TOKENS);
+    mockPrompt.mockResolvedValue('dialog-pw');
+    const { client } = await resolveAuth({ ...noCache, httpFetch: vi.fn().mockResolvedValue(okResponse()) });
+    await client.request('GET', '/frames');
+    expect(mockPrompt).toHaveBeenCalledWith('a@b.com');
+    expect(mockLogin).toHaveBeenCalledWith(expect.objectContaining({ password: 'dialog-pw' }), expect.anything());
   });
 
   it('throws on partial config (email only)', async () => {

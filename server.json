@@ -37,6 +37,13 @@
           "isSecret": true
         },
         {
+          "name": "SKYLIGHT_PASSWORD_PROMPT",
+          "description": "Set to true (with SKYLIGHT_EMAIL and no SKYLIGHT_PASSWORD) to be asked for the password in a native sign-in dialog on Windows or macOS whenever a fresh login is needed. The password is never stored; only the token pair is cached.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
           "name": "SKYLIGHT_FRAME_ID",
           "description": "Optional: pick a specific Skylight frame when the account has more than one.",
           "isRequired": false,

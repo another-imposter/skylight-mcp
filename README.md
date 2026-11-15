@@ -193,6 +193,22 @@ SKYLIGHT_EMAIL=you@example.com
 SKYLIGHT_PASSWORD=your-password
 ```
 
+**Or an email with a password prompt** — no password stored anywhere:
+
+```
+SKYLIGHT_EMAIL=you@example.com
+SKYLIGHT_PASSWORD_PROMPT=true
+```
+
+Whenever a fresh login is actually needed (no usable cached token), the server
+opens a native sign-in window — a WinForms dialog on Windows, an AppleScript
+dialog on macOS — and passes what you type straight to the login. The password
+is never written to disk, logged, or sent through the model or chat. Cancelling
+the window fails that one tool call; the next call prompts again. The token
+cache is bound to the email alone in this mode, so a changed password surfaces
+as a failed refresh, which prompts. Not supported on Linux. A
+`SKYLIGHT_PASSWORD`, when set, wins over the prompt.
+
 Setting both is also valid, and is the most robust configuration: the token is
 used first, and if it has expired the login quietly mints a replacement. With a
 token alone, an expired token is reported as expired — the server says so

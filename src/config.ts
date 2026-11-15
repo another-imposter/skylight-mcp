@@ -1,4 +1,4 @@
-import { readEnvVar } from '@chrischall/mcp-utils';
+import { parseBoolEnv, readEnvVar } from '@chrischall/mcp-utils';
 
 export interface SessionAccount {
   mode: 'session';
@@ -20,6 +20,12 @@ export interface SessionAccount {
    * rate-limited login endpoint is never touched on a cold start.
    */
   refreshToken?: string;
+  /**
+   * `SKYLIGHT_PASSWORD_PROMPT=true`: no password in the environment — ask for
+   * it in a native dialog whenever a login is actually needed (see
+   * password-prompt.ts). Only meaningful with an email and no password.
+   */
+  passwordPrompt?: boolean;
   /** Optional explicit frame id; when unset the client discovers it. */
   frameId?: string;
 }
@@ -53,13 +59,16 @@ export function loadAccount(env: Record<string, string | undefined> = process.en
   const email = readVar(env, 'SKYLIGHT_EMAIL');
   const password = readVar(env, 'SKYLIGHT_PASSWORD');
   const refreshToken = readVar(env, 'SKYLIGHT_REFRESH_TOKEN');
+  // A password in the environment wins; the prompt is for when there is none.
+  const passwordPrompt =
+    !password && !!email && parseBoolEnv('SKYLIGHT_PASSWORD_PROMPT', { env, default: false });
 
   // A supplied token is a complete configuration on its own. The login pair
   // stays optional beside it: present, it becomes the recovery path when the
   // token goes stale; absent, nothing here needs a password at all.
   if (!refreshToken) {
     if (!email && !password) throw new Error(NO_CONFIG);
-    if (!email || !password) {
+    if (!email || (!password && !passwordPrompt)) {
       const missing = email ? 'SKYLIGHT_PASSWORD' : 'SKYLIGHT_EMAIL';
       throw new Error(
         `${NO_CONFIG_MARKER} — missing: ${missing}. Set both SKYLIGHT_EMAIL and SKYLIGHT_PASSWORD, ` +
@@ -78,6 +87,7 @@ export function loadAccount(env: Record<string, string | undefined> = process.en
     email,
     password,
     refreshToken,
+    ...(passwordPrompt ? { passwordPrompt } : {}),
     frameId: readVar(env, 'SKYLIGHT_FRAME_ID'),
   };
 }

@@ -34,6 +34,8 @@ No bot wall has been observed; the headless flow works directly. The server logs
 
 **No env vars → clean start:** `resolveAuth()` is called lazily (on first tool invocation). The deferred-config-error pattern lives in `src/get-client.ts` (`makeGetClient`): a `CookieSessionManager` (`@chrischall/mcp-utils/session`) runs `resolveAuth()` once on the first tool call, caches a genuine missing-config error (message carrying `NO_ENV_CONFIG_MARKER` from `src/config.ts`) via `isPermanentError`, and single-flights concurrent first calls. The server starts without error so MCP hosts can list tools before credentials are configured; transient login failures (network/5xx/rate-limit) are not cached and retry on the next call.
 
+**Password prompt (fork addition).** `SKYLIGHT_PASSWORD_PROMPT=true` with `SKYLIGHT_EMAIL` and no `SKYLIGHT_PASSWORD` makes `doLogin` call `promptForPassword()` (`src/password-prompt.ts`) — a native dialog (PowerShell WinForms via `-EncodedCommand` on Windows, `osascript` on macOS) — at login time only. The password lives only for that `login()` call; the cache binds to `prompt\0<email>`. Never route the password through a tool argument or chat.
+
 ### OAuth redirects
 
 `login()` must resolve relative authorization redirects against the current request URL. Only the authentication origin may receive the session cookie. Read the authorization code only from the exact configured callback origin and path, without fetching that callback. Reject URL credentials, fragments, HTTPS downgrades, and other destinations. Do not include redirect URLs in errors because their query strings can contain credentials. Tests cover these cases in `tests/auth-session-login.test.ts`; run `npm run test:coverage` and `npm run build` after authentication changes.

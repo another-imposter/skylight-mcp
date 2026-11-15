@@ -89,6 +89,29 @@ describe('loadAccount', () => {
   });
 });
 
+describe('loadAccount password prompt', () => {
+  it('accepts an email with no password when SKYLIGHT_PASSWORD_PROMPT is on', () => {
+    const acc = loadAccount({ SKYLIGHT_EMAIL: 'a@b.com', SKYLIGHT_PASSWORD_PROMPT: 'true' });
+    expect(acc.passwordPrompt).toBe(true);
+    expect(acc.password).toBeUndefined();
+  });
+
+  it('prefers a password in the environment over prompting', () => {
+    const acc = loadAccount({ SKYLIGHT_EMAIL: 'a@b.com', SKYLIGHT_PASSWORD: 'pw', SKYLIGHT_PASSWORD_PROMPT: 'true' });
+    expect(acc.passwordPrompt).toBeUndefined();
+    expect(acc.password).toBe('pw');
+  });
+
+  it('still needs an email to prompt for', () => {
+    expect(() => loadAccount({ SKYLIGHT_PASSWORD_PROMPT: 'true' })).toThrow(NO_ENV_CONFIG_MARKER);
+  });
+
+  it('is off by default and when the host sends a placeholder', () => {
+    expect(() => loadAccount({ SKYLIGHT_EMAIL: 'a@b.com', SKYLIGHT_PASSWORD_PROMPT: 'false' })).toThrow(/SKYLIGHT_PASSWORD/);
+    expect(() => loadAccount({ SKYLIGHT_EMAIL: 'a@b.com', SKYLIGHT_PASSWORD_PROMPT: '${user_config.skylight_password_prompt}' })).toThrow(/SKYLIGHT_PASSWORD/);
+  });
+});
+
 describe('loadAppleCalendarCredential', () => {
   it('reads the app-specific password and optional Apple ID from env', () => {
     expect(loadAppleCalendarCredential({ SKYLIGHT_APPLE_APP_PASSWORD: 'abcd-efgh-ijkl-mnop', SKYLIGHT_APPLE_ID: 'apple-id@example.test' }))
